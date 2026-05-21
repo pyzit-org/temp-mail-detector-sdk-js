@@ -14,7 +14,7 @@
   "homepage": "https://temp-mail-detector.pyzit.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pyzit/tempmail-pyzit-js"
+    "url": "https://github.com/pyzit-org/temp-mail-detector-sdk-js/"
   },
   "main": "dist/index.cjs",
   "module": "dist/index.js",
