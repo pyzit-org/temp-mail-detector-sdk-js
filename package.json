@@ -1,0 +1,59 @@
+{
+  "name": "@pyzit/tempmail",
+  "version": "0.1.0",
+  "description": "Official JavaScript/TypeScript SDK for the Pyzit disposable email detector API",
+  "author": "Pyzit <hi@pyzit.com>",
+  "license": "MIT",
+  "keywords": [
+    "email",
+    "disposable",
+    "tempmail",
+    "validation",
+    "pyzit"
+  ],
+  "homepage": "https://temp-mail-detector.pyzit.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pyzit/tempmail-pyzit-js"
+  },
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,js}": [
+      "npm run lint"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
