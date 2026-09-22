@@ -103,6 +103,17 @@ Get your API token at [temp-mail-detector.pyzit.com](https://temp-mail-detector.
 > const client = new TempMailClient(process.env.PYZIT_TOKEN);
 > ```
 
+The client also accepts an options object for advanced configuration:
+
+```javascript
+const client = new TempMailClient({
+  apiKey: process.env.PYZIT_TOKEN,
+  timeout: 10,      // 10 seconds
+  maxRetries: 3,    // Retry up to 3 times
+  failOpen: true,   // Don't block users if API is down
+});
+```
+
 ---
 
 ## ◈ API tiers
@@ -154,28 +165,28 @@ class CheckResult {
 ### `DetailedResult` ← `await client.detailed(email)`
 
 Full forensic analysis. DNS records, SMTP probing, reputation scoring,
-domain age, signal breakdown. **Pro tier.**
+domain classification. **Pro tier.**
 
 ```javascript
 const result = await client.detailed("suspicious@new-domain.io");
 
 result.risk_level       // "high"
-result.recommendation   // "reject"
 result.reputation_score // 0.0
-result.should_reject    // true (convenience getter)
+result.classification   // "disposable"
+result.is_trusted       // false
 
 // DNS intelligence
-const dns = result.details.dns_intelligence;
-dns.has_mx       // false
-dns.mx_hostnames() // []
-dns.mx_ips()       // []
+result.has_mx           // false
+result.mx_hostnames()   // []
+result.a_ips()          // []
 
-// Signal breakdown
-result.details.signals.negative // ["no_mx_records", "new_domain", ...]
-
-// Domain stability
-result.details.stability.domain_age_days // 0
-result.details.stability.is_new_domain   // true
+// Detailed DNS info
+result.details.has_mx        // false
+result.details.mx_records   // []
+result.details.has_spf       // false
+result.details.spf_record    // null
+result.details.has_dmarc     // false
+result.details.dmarc_record  // null
 ```
 
 **Response shape:**
@@ -185,17 +196,31 @@ class DetailedResult {
   email: string;
   domain: string;
   is_disposable: boolean;
-  status: string;
+  is_trusted: boolean;
+  classification: "trusted" | "disposable" | "unknown";
   reputation_score: number;
   risk_level: "low" | "medium" | "high";
-  recommendation: "accept" | "review" | "reject";
-  readonly should_reject: boolean;
-  details: {
-    reputation: ReputationDetail;
-    signals: Signals;
-    dns_intelligence: DnsIntelligence; // has .mx_hostnames() and .mx_ips()
-    stability: StabilityInfo;
-  };
+  is_valid_format: boolean;
+  rule_applied: string | null;
+  details: DetailedDetails;
+  status: "clean" | "disposable";
+  readonly is_clean: boolean;
+  
+  // Helper methods
+  mx_hostnames(): string[];
+  a_ips(): string[];
+  get has_mx(): boolean;
+}
+
+interface DetailedDetails {
+  has_mx: boolean;
+  mx_records: string[];
+  has_a: boolean;
+  a_records: string[];
+  has_spf: boolean;
+  spf_record: string | null;
+  has_dmarc: boolean;
+  dmarc_record: string | null;
 }
 ```
 
@@ -212,8 +237,10 @@ const result = await client.bulk([
   "user@mailnator.com",
 ]);
 
-result.processed          // 3
-result.results            // {"hi@pyzit.com": false, "cyz@temp-mail.org": true, ...}
+result.total              // 3
+result.status             // "mixed"
+result.disposable_count   // 2
+result.flagged_domains    // ["temp-mail.org", "mailnator.com"]
 
 result.disposable_emails() // ["cyz@temp-mail.org", "user@mailnator.com"]
 result.clean_emails()      // ["hi@pyzit.com"]
@@ -223,8 +250,13 @@ result.clean_emails()      // ["hi@pyzit.com"]
 
 ```typescript
 class BulkResult {
-  results: Record<string, boolean>; // { email: isDisposable }
-  processed: number;
+  total: number;
+  status: "clean" | "disposable" | "mixed";
+  disposable_count: number;
+  flagged_domains: string[];
+  results: CheckResult[];
+  
+  // Helper methods
   disposable_emails(): string[];
   clean_emails(): string[];
 }
@@ -234,14 +266,18 @@ class BulkResult {
 
 ## ◈ Response models
 
-The SDK uses classes for response models to provide helper methods and getters, similar to the Python version.
+The SDK uses classes for response models to provide helper methods and getters.
 
 ```typescript
-import { 
-  CheckResult, 
-  DetailedResult, 
-  BulkResult 
+import {
+  CheckResult,
+  DetailedResult,
+  BulkResult
 } from "@pyzit/tempmail";
+
+// Also available: VERSION constant
+import { VERSION } from "@pyzit/tempmail";
+console.log(VERSION); // "1.0.0"
 ```
 
 ---
@@ -254,12 +290,16 @@ at one level or be specific.
 ```
 PyzitError                    ← catch-all for any SDK error
 ├── AuthenticationError       ← HTTP 401 — bad or missing token
-├── PlanRequiredError         ← HTTP 402/403 — need a higher plan
-│   └── .requiredPlan         ← string, e.g. "pro" or "business"
-├── ScopeError                ← HTTP 403 — missing required scope
-│   └── .requiredScope        ← string, e.g. "detailed:tempemail_check"
+├── InsufficientScopeError    ← HTTP 403 — missing required scope
+│   └── .requiredScope        ← string, e.g. "tmd:detailed"
+├── QuotaExceededError        ← HTTP 402 — quota exhausted
+│   └── .quotaType            ← "simple" or "detailed"
+├── BatchLimitExceededError   ← HTTP 400 — batch size exceeded
+│   └── .maxAllowed           ← number, maximum allowed for plan
 ├── RateLimitError            ← HTTP 429 — slow down
 │   └── .retryAfter           ← number, seconds to wait
+├── ValidationError           ← HTTP 400 — invalid request parameters
+│   └── .fieldErrors          ← object with field-specific errors
 ├── APIError                  ← any other non-2xx response
 │   ├── .statusCode           ← number
 │   └── .responseBody         ← string, raw body for debugging
@@ -272,7 +312,8 @@ PyzitError                    ← catch-all for any SDK error
 import { 
   TempMailClient, 
   AuthenticationError, 
-  PlanRequiredError, 
+  InsufficientScopeError,
+  QuotaExceededError,
   PyzitError 
 } from "@pyzit/tempmail";
 
@@ -283,8 +324,10 @@ try {
 } catch (err) {
   if (err instanceof AuthenticationError) {
     console.error("Check your API token.");
-  } else if (err instanceof PlanRequiredError) {
-    console.error(`Upgrade to ${err.requiredPlan} plan.`);
+  } else if (err instanceof InsufficientScopeError) {
+    console.error(`Missing scope: ${err.requiredScope}`);
+  } else if (err instanceof QuotaExceededError) {
+    console.error(`Quota exceeded for: ${err.quotaType}`);
   } else if (err instanceof PyzitError) {
     console.error("SDK Error:", err.message);
   }
@@ -380,17 +423,57 @@ export default {
 
 ```javascript
 const client = new TempMailClient({
-  apiToken: "YOUR_TOKEN", // required
-  timeout: 10000,         // milliseconds, default 10000
-  baseUrl: "https://api-tempmail.pyzit.com/v1", // override for testing
+  apiKey: "YOUR_TOKEN",    // required
+  timeout: 10,             // seconds, default 5
+  baseUrl: "https://api.pyzit.com", // override for testing
+  maxRetries: 2,           // default 2
+  failOpen: false,         // default false
 });
 ```
 
 | Parameter  | Type     | Default                              | Description                        |
 |------------|----------|--------------------------------------|------------------------------------|
-| `apiToken` | `string` | —                                    | Your Pyzit API token (required)    |
-| `timeout`  | `number` | `10000`                              | Request timeout in milliseconds    |
-| `baseUrl`  | `string` | `https://api-tempmail.pyzit.com/v1` | Override for local testing / mocks |
+| `apiKey`   | `string` | —                                    | Your Pyzit API token (required)    |
+| `timeout`  | `number` | `5`                                  | Request timeout in seconds        |
+| `baseUrl`  | `string` | `https://api.pyzit.com`             | Override for local testing / mocks |
+| `maxRetries` | `number` | `2`                               | Max retry attempts for transient failures |
+| `failOpen` | `boolean` | `false`                             | Return synthetic clean result on API errors |
+
+---
+
+## ◈ Advanced Features
+
+### Automatic Retry Logic
+
+The SDK automatically retries transient failures (5xx errors, timeouts, network issues) with exponential backoff and jitter:
+
+```javascript
+const client = new TempMailClient({
+  apiKey: process.env.PYZIT_TOKEN,
+  maxRetries: 3,  // Retry up to 3 times
+});
+
+// Retries happen automatically for:
+// - 5xx server errors
+// - Request timeouts
+// - Network failures
+// - Rate limit errors (respects Retry-After header)
+```
+
+### Fail-Open Mode
+
+For production environments, enable fail-open mode to never block users when the API is unavailable:
+
+```javascript
+const client = new TempMailClient({
+  apiKey: process.env.PYZIT_TOKEN,
+  failOpen: true,  // Return synthetic clean result on errors
+});
+
+// On API errors, returns: { email: "...", is_disposable: false, status: "clean" }
+```
+
+**Recommended for**: Signup flows, high-availability systems, graceful degradation.
 
 ---
 
