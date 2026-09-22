@@ -4,11 +4,11 @@
 
 import type { CheckResult, DetailedResult, BulkResult } from "../src/types.js"
 
-export const FAKE_TOKEN   = "test-token-xyz"
-export const BASE_URL     = "https://api-tempmail.pyzit.com/v1"
-export const CHECK_URL    = BASE_URL + "/validate/check/"
-export const DETAILED_URL = BASE_URL + "/validate/detailed/"
-export const BULK_URL     = BASE_URL + "/validate/bulk/"
+export const FAKE_TOKEN   = "pyzit_live_test-token-xyz"
+export const BASE_URL     = "https://api.pyzit.com"
+export const CHECK_URL    = BASE_URL + "/v1/tmd/check/"
+export const DETAILED_URL = BASE_URL + "/v1/tmd/detailed/"
+export const BULK_URL     = BASE_URL + "/v1/tmd/bulk/"
 
 // ── response payloads ─────────────────────────────────────────────
 
@@ -28,72 +28,58 @@ export const DETAILED_PAYLOAD: DetailedResult = {
   email:            "x@new-domain.io",
   domain:           "new-domain.io",
   is_disposable:    true,
-  status:           "disposable",
-  reputation_score: 0.0,
+  is_trusted:       false,
+  classification:  "disposable",
+  reputation_score: 0,
   risk_level:       "high",
-  recommendation:   "reject",
+  is_valid_format:  true,
+  rule_applied:     null,
   details: {
-    reputation: {
-      reputation_score:      0.0,
-      is_disposable:         true,
-      disposable_confidence: 0.79,
-      risk_level:            "high",
-      recommendation:        "reject",
-    },
-    signals: {
-      positive: [],
-      negative: ["no_mx_records", "new_domain", "smtp_server_unreachable"],
-      neutral:  ["limited_history", "smtp_rejected_probe"],
-    },
-    dns_intelligence: {
-      has_mx:       false,
-      mx_records:   [],
-      has_a_record: false,
-      has_spf:      false,
-      has_dmarc:    false,
-      error:        null,
-    },
-    stability: {
-      stability_score: 0.2,
-      domain_age_days: 0,
-      is_new_domain:   true,
-      risk_factors:    ["newly_observed_domain", "no_mx_records"],
-    },
+    has_mx:       false,
+    mx_records:   [],
+    has_a:        false,
+    a_records:    [],
+    has_spf:      false,
+    spf_record:   null,
+    has_dmarc:    false,
+    dmarc_record: null,
   },
+  status: "disposable",
 }
 
 export const DETAILED_WITH_MX: DetailedResult = {
   ...DETAILED_PAYLOAD,
   domain:           "pyzit.com",
   is_disposable:    false,
-  status:           "clean",
-  reputation_score: 0.9,
+  is_trusted:       true,
+  classification:  "trusted",
+  reputation_score: 100,
   risk_level:       "low",
-  recommendation:   "accept",
+  rule_applied:     "custom_whitelist",
   details: {
-    ...DETAILED_PAYLOAD.details,
-    dns_intelligence: {
-      has_mx:       true,
-      mx_records:   [
-        { priority: 5,  exchange: "mail1.pyzit.com", ips: ["172.65.182.103"] },
-        { priority: 10, exchange: "mail2.pyzit.com", ips: ["172.65.182.104"] },
-      ],
-      has_a_record: true,
-      has_spf:      true,
-      has_dmarc:    true,
-      error:        null,
-    },
+    has_mx:       true,
+    mx_records:   ["mail1.pyzit.com", "mail2.pyzit.com"],
+    has_a:        true,
+    a_records:    ["172.65.182.103", "172.65.182.104"],
+    has_spf:      true,
+    spf_record:   "v=spf1 include:custom-whitelist ~all",
+    has_dmarc:    true,
+    dmarc_record: "v=DMARC1; p=none",
   },
+  status: "clean",
 }
 
 export const BULK_PAYLOAD: BulkResult = {
-  results: {
-    "hi@pyzit.com":       false,
-    "x@mailnator.com":    true,
-    "support@github.com": false,
-    "fake@temp-mail.org": true,
-  },
-  processed: 4,
+  total: 4,
+  status: "mixed",
+  disposable_count: 2,
+  flagged_domains: ["mailnator.com", "temp-mail.org"],
+  results: [
+    { email: "hi@pyzit.com", is_disposable: false, status: "clean" },
+    { email: "x@mailnator.com", is_disposable: true, status: "disposable" },
+    { email: "support@github.com", is_disposable: false, status: "clean" },
+    { email: "fake@temp-mail.org", is_disposable: true, status: "disposable" },
+  ],
 }
 
 // ── helper — build a mock Response ───────────────────────────────
