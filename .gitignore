@@ -34,3 +34,6 @@ coverage/
 
 # Husky
 .husky/_/
+
+changes.md
+DOCUMENTATION.md
