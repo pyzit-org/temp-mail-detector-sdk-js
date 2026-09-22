@@ -6,9 +6,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   TempMailClient,
   AuthenticationError,
-  ScopeError,
-  PlanRequiredError,
+  InsufficientScopeError,
+  QuotaExceededError,
+  BatchLimitExceededError,
   RateLimitError,
+  ValidationError,
   APIError,
   TimeoutError,
 } from "../src/index.js"
@@ -26,7 +28,7 @@ const mockFetch = vi.fn()
 vi.stubGlobal("fetch", mockFetch)
 beforeEach(() => mockFetch.mockReset())
 
-const client = new TempMailClient(FAKE_TOKEN)
+const client = new TempMailClient({ apiKey: FAKE_TOKEN, maxRetries: 0 })
 
 // ── check() happy paths ───────────────────────────────────────────
 
@@ -90,36 +92,49 @@ describe("check() — error handling", () => {
     await expect(client.check("x@y.com")).rejects.toThrow(AuthenticationError)
   })
 
-  it("HTTP 403 with scope detail → ScopeError", async () => {
+  it("HTTP 403 with scope detail → InsufficientScopeError", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(
-      { detail: "Token missing required scope: check:tempemail_check" }, 403
+      { detail: "API key lacks required scope: 'tmd:basic'." }, 403
     ))
     const err = await client.check("x@y.com").catch(e => e)
-    expect(err).toBeInstanceOf(ScopeError)
-    expect(err.requiredScope).toBe("check:tempemail_check")
+    expect(err).toBeInstanceOf(InsufficientScopeError)
+    expect(err.requiredScope).toBe("tmd:basic")
   })
 
-  it("HTTP 403 with required_plan → PlanRequiredError", async () => {
+  it("HTTP 402 with quota_exceeded → QuotaExceededError", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(
-      { required_plan: "pro" }, 403
+      { detail: "You have exceeded your monthly simple check quota. Please upgrade your plan.", code: "quota_exceeded" }, 402
     ))
     const err = await client.check("x@y.com").catch(e => e)
-    expect(err).toBeInstanceOf(PlanRequiredError)
-    expect(err.requiredPlan).toBe("pro")
+    expect(err).toBeInstanceOf(QuotaExceededError)
+    expect(err.quotaType).toBe("simple")
   })
 
-  it("HTTP 403 with no body → AuthenticationError fallback", async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse({}, 403))
-    await expect(client.check("x@y.com")).rejects.toThrow(AuthenticationError)
-  })
-
-  it("HTTP 402 → PlanRequiredError", async () => {
+  it("HTTP 402 with detailed quota → QuotaExceededError with detailed type", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(
-      { required_plan: "pro" }, 402
+      { detail: "You have exceeded your monthly detailed check quota. Please upgrade your plan.", code: "quota_exceeded" }, 402
     ))
     const err = await client.check("x@y.com").catch(e => e)
-    expect(err).toBeInstanceOf(PlanRequiredError)
-    expect(err.requiredPlan).toBe("pro")
+    expect(err).toBeInstanceOf(QuotaExceededError)
+    expect(err.quotaType).toBe("detailed")
+  })
+
+  it("HTTP 400 with batch limit → BatchLimitExceededError", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(
+      { detail: "Your plan allows a maximum of 10 emails per bulk request. Upgrade your plan for higher limits." }, 400
+    ))
+    const err = await client.check("x@y.com").catch(e => e)
+    expect(err).toBeInstanceOf(BatchLimitExceededError)
+    expect(err.maxAllowed).toBe(10)
+  })
+
+  it("HTTP 400 with validation error → ValidationError", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(
+      { email: ["Enter a valid email address."] }, 400
+    ))
+    const err = await client.check("x@y.com").catch(e => e)
+    expect(err).toBeInstanceOf(ValidationError)
+    expect(err.fieldErrors).toEqual({ email: ["Enter a valid email address."] })
   })
 
   it("HTTP 429 → RateLimitError with retryAfter from header", async () => {
@@ -131,11 +146,11 @@ describe("check() — error handling", () => {
     expect(err.retryAfter).toBe(45)
   })
 
-  it("HTTP 429 with no Retry-After → RateLimitError defaults to 60", async () => {
+  it("HTTP 429 with no Retry-After → RateLimitError defaults to 1.0", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse({}, 429))
     const err = await client.check("x@y.com").catch(e => e)
     expect(err).toBeInstanceOf(RateLimitError)
-    expect(err.retryAfter).toBe(60)
+    expect(err.retryAfter).toBe(1.0)
   })
 
   it("HTTP 500 → APIError with correct statusCode", async () => {
@@ -162,8 +177,8 @@ describe("check() — error handling", () => {
   it("all thrown errors are instanceof PyzitError", async () => {
     const cases = [
       makeResponse({}, 401),
-      makeResponse({ detail: "Token missing required scope: x" }, 403),
-      makeResponse({ required_plan: "pro" }, 402),
+      makeResponse({ detail: "API key lacks required scope: 'tmd:basic'." }, 403),
+      makeResponse({ detail: "You have exceeded your monthly simple check quota.", code: "quota_exceeded" }, 402),
       makeResponse({}, 429),
       makeTextResponse("error", 500),
     ]
@@ -188,8 +203,8 @@ describe("TempMailClient config", () => {
     expect(opts.headers["Authorization"]).toBe("Bearer my-token")
   })
 
-  it("accepts options object with apiToken", async () => {
-    const c = new TempMailClient({ apiToken: "opt-token", timeout: 5_000 })
+  it("accepts options object with apiKey", async () => {
+    const c = new TempMailClient({ apiKey: "opt-token", timeout: 5 })
     mockFetch.mockResolvedValueOnce(makeResponse(CLEAN_PAYLOAD))
     await c.check("hi@pyzit.com")
     const [, opts] = mockFetch.mock.calls[0]
@@ -198,24 +213,44 @@ describe("TempMailClient config", () => {
 
   it("baseUrl override is used in request URL", async () => {
     const c = new TempMailClient({
-      apiToken: "tok",
-      baseUrl: "https://mock.local/v1",
+      apiKey: "tok",
+      baseUrl: "https://mock.local",
     })
     mockFetch.mockResolvedValueOnce(makeResponse(CLEAN_PAYLOAD))
     await c.check("hi@pyzit.com")
     const [url] = mockFetch.mock.calls[0]
     expect(url).toContain("mock.local")
-    expect(url).toContain("/validate/check/")
+    expect(url).toContain("/v1/tmd/check/")
   })
 
   it("trailing slash in baseUrl is stripped", async () => {
     const c = new TempMailClient({
-      apiToken: "tok",
-      baseUrl: "https://mock.local/v1/",
+      apiKey: "tok",
+      baseUrl: "https://mock.local/",
     })
     mockFetch.mockResolvedValueOnce(makeResponse(CLEAN_PAYLOAD))
     await c.check("hi@pyzit.com")
     const [url] = mockFetch.mock.calls[0]
-    expect(url).not.toContain("//validate")
+    expect(url).not.toContain("//v1")
+  })
+
+  it("supports maxRetries option", async () => {
+    const c = new TempMailClient({
+      apiKey: "tok",
+      maxRetries: 5,
+    })
+    expect(c).toBeDefined()
+  })
+
+  it("supports failOpen option", async () => {
+    const c = new TempMailClient({
+      apiKey: "tok",
+      failOpen: true,
+    })
+    expect(c).toBeDefined()
+  })
+
+  it("throws error when apiKey is missing", async () => {
+    expect(() => new TempMailClient({ apiKey: "" })).toThrow("apiKey is required")
   })
 })
