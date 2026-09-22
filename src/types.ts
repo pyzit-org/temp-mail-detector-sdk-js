@@ -1,4 +1,4 @@
-// ── /v1/validate/check/ ─────────────────────────────────────
+// ── /v1/tmd/check/ ─────────────────────────────────────
 
 export class CheckResult {
   email: string;
@@ -17,153 +17,114 @@ export class CheckResult {
   }
 }
 
-// ── /v1/validate/detailed/ ───────────────────────────────────
+// ── /v1/tmd/detailed/ ───────────────────────────────────
 
-export interface MxRecord {
-  priority: number;
-  exchange: string;
-  ips: string[];
-}
-
-export class DnsIntelligence {
+export interface DetailedDetails {
   has_mx: boolean;
-  mx_records: MxRecord[];
-  has_a_record: boolean;
+  mx_records: string[];
+  has_a: boolean;
+  a_records: string[];
   has_spf: boolean;
+  spf_record: string | null;
   has_dmarc: boolean;
-  error: string | null;
-
-  constructor(data: any) {
-    this.has_mx = data.has_mx;
-    this.mx_records = (data.mx_records || []).map((r: any) => ({
-      priority: r.priority,
-      exchange: r.exchange,
-      ips: r.ips || [],
-    }));
-    this.has_a_record = data.has_a_record;
-    this.has_spf = data.has_spf;
-    this.has_dmarc = data.has_dmarc;
-    this.error = data.error;
-  }
-
-  /** Return just the exchange hostnames, e.g. ['mail.example.com'] */
-  mx_hostnames(): string[] {
-    return this.mx_records.map((r) => r.exchange);
-  }
-
-  /** Return all resolved IPs across all MX records. */
-  mx_ips(): string[] {
-    return this.mx_records.flatMap((r) => r.ips);
-  }
-}
-
-export interface Signals {
-  positive: string[];
-  negative: string[];
-  neutral: string[];
-}
-
-export interface ReputationDetail {
-  reputation_score: number;
-  is_disposable: boolean;
-  disposable_confidence: number;
-  risk_level: string;
-  recommendation: string;
-}
-
-export interface StabilityInfo {
-  stability_score: number;
-  domain_age_days: number;
-  is_new_domain: boolean;
-  risk_factors: string[];
-}
-
-export class DetailedDetails {
-  reputation: ReputationDetail;
-  signals: Signals;
-  dns_intelligence: DnsIntelligence;
-  stability: StabilityInfo;
-
-  constructor(data: any) {
-    this.reputation = data.reputation || {
-      reputation_score: 0,
-      is_disposable: false,
-      disposable_confidence: 0,
-      risk_level: "unknown",
-      recommendation: "unknown",
-    };
-    this.signals = data.signals || {
-      positive: [],
-      negative: [],
-      neutral: [],
-    };
-    this.dns_intelligence = new DnsIntelligence(data.dns_intelligence || {});
-    this.stability = data.stability || {
-      stability_score: 0,
-      domain_age_days: 0,
-      is_new_domain: false,
-      risk_factors: [],
-    };
-  }
+  dmarc_record: string | null;
 }
 
 export class DetailedResult {
   email: string;
   domain: string;
   is_disposable: boolean;
-  status: string;
+  is_trusted: boolean;
+  classification: "trusted" | "disposable" | "unknown";
   reputation_score: number;
-  risk_level: string;
-  recommendation: string;
+  risk_level: "low" | "medium" | "high";
+  is_valid_format: boolean;
+  rule_applied: string | null;
   details: DetailedDetails;
+  status: "clean" | "disposable";
 
   constructor(data: any) {
     this.email = data.email;
     this.domain = data.domain;
     this.is_disposable = data.is_disposable;
-    this.status = data.status;
+    this.is_trusted = data.is_trusted;
+    this.classification = data.classification;
     this.reputation_score = data.reputation_score;
     this.risk_level = data.risk_level;
-    this.recommendation = data.recommendation;
-    this.details = new DetailedDetails(data.details || {});
+    this.is_valid_format = data.is_valid_format;
+    this.rule_applied = data.rule_applied;
+    this.details = data.details || {
+      has_mx: false,
+      mx_records: [],
+      has_a: false,
+      a_records: [],
+      has_spf: false,
+      spf_record: null,
+      has_dmarc: false,
+      dmarc_record: null,
+    };
+    this.status = data.status;
   }
 
-  /** True when the API recommends rejecting this email. */
-  get should_reject(): boolean {
-    return this.recommendation === "reject";
+  /** Shorthand: True when the email is NOT disposable. */
+  get is_clean(): boolean {
+    return !this.is_disposable;
+  }
+
+  /** Return just the exchange hostnames, e.g. ['mail.example.com'] */
+  mx_hostnames(): string[] {
+    return this.details.mx_records || [];
+  }
+
+  /** Return all resolved IPs across all A records. */
+  a_ips(): string[] {
+    return this.details.a_records || [];
+  }
+
+  /** Check if MX records exist. */
+  get has_mx(): boolean {
+    return this.details.has_mx;
   }
 }
 
-// ── /v1/validate/bulk/ ───────────────────────────────────────
+// ── /v1/tmd/bulk/ ───────────────────────────────────────
 
 export class BulkResult {
-  results: Record<string, boolean>; // { "email": isDisposable }
-  processed: number;
+  total: number;
+  status: "clean" | "disposable" | "mixed";
+  disposable_count: number;
+  flagged_domains: string[];
+  results: CheckResult[];
 
   constructor(data: any) {
-    this.results = data.results || {};
-    this.processed = data.processed || 0;
+    this.total = data.total || 0;
+    this.status = data.status || "clean";
+    this.disposable_count = data.disposable_count || 0;
+    this.flagged_domains = data.flagged_domains || [];
+    this.results = (data.results || []).map((item: any) => new CheckResult(item));
   }
 
   /** Return only the emails that ARE disposable. */
   disposable_emails(): string[] {
-    return Object.entries(this.results)
-      .filter(([, isDisp]) => isDisp)
-      .map(([email]) => email);
+    return this.results
+      .filter((r) => r.is_disposable)
+      .map((r) => r.email);
   }
 
   /** Return only the emails that are NOT disposable. */
   clean_emails(): string[] {
-    return Object.entries(this.results)
-      .filter(([, isDisp]) => !isDisp)
-      .map(([email]) => email);
+    return this.results
+      .filter((r) => r.is_clean)
+      .map((r) => r.email);
   }
 }
 
 // ── client options ───────────────────────────────────────────
 
 export interface TempMailClientOptions {
-  apiToken: string;
-  timeout?: number; // ms, default 10000
-  baseUrl?: string; // override for testing
+  apiKey: string;
+  baseUrl?: string;
+  timeout?: number; // seconds, default 5.0
+  maxRetries?: number; // default 2
+  failOpen?: boolean; // default false
 }
