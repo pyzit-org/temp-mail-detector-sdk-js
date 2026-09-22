@@ -6,9 +6,11 @@ import { describe, it, expect } from "vitest"
 import {
   PyzitError,
   AuthenticationError,
-  ScopeError,
-  PlanRequiredError,
+  InsufficientScopeError,
+  QuotaExceededError,
+  BatchLimitExceededError,
   RateLimitError,
+  ValidationError,
   APIError,
   TimeoutError,
 } from "../src/index.js"
@@ -30,9 +32,11 @@ describe("PyzitError base class", () => {
 describe("all errors extend PyzitError", () => {
   const classes = [
     AuthenticationError,
-    ScopeError,
-    PlanRequiredError,
+    InsufficientScopeError,
+    QuotaExceededError,
+    BatchLimitExceededError,
     RateLimitError,
+    ValidationError,
     APIError,
     TimeoutError,
   ]
@@ -62,8 +66,12 @@ describe("AuthenticationError", () => {
     expect(new AuthenticationError().name).toBe("AuthenticationError")
   })
 
+  it("has statusCode 401", () => {
+    expect(new AuthenticationError().statusCode).toBe(401)
+  })
+
   it("uses default message when none given", () => {
-    expect(new AuthenticationError().message).toContain("Invalid or missing")
+    expect(new AuthenticationError().message).toContain("Invalid or inactive")
   })
 
   it("accepts a custom message", () => {
@@ -72,85 +80,113 @@ describe("AuthenticationError", () => {
   })
 })
 
-describe("ScopeError", () => {
+describe("InsufficientScopeError", () => {
   it("has correct name", () => {
-    expect(new ScopeError().name).toBe("ScopeError")
+    expect(new InsufficientScopeError("msg", "tmd:detailed").name).toBe("InsufficientScopeError")
+  })
+
+  it("has statusCode 403", () => {
+    expect(new InsufficientScopeError("msg", "tmd:detailed").statusCode).toBe(403)
   })
 
   it("stores requiredScope", () => {
-    const err = new ScopeError("detailed:tempemail_check")
-    expect(err.requiredScope).toBe("detailed:tempemail_check")
+    const err = new InsufficientScopeError("msg", "tmd:detailed")
+    expect(err.requiredScope).toBe("tmd:detailed")
   })
 
-  it("includes requiredScope in message", () => {
-    const err = new ScopeError("bulk:validate")
-    expect(err.message).toContain("bulk:validate")
-  })
-
-  it("defaults requiredScope to empty string", () => {
-    expect(new ScopeError().requiredScope).toBe("")
+  it("accepts tmd:basic scope", () => {
+    const err = new InsufficientScopeError("msg", "tmd:basic")
+    expect(err.requiredScope).toBe("tmd:basic")
   })
 })
 
-describe("PlanRequiredError", () => {
+describe("QuotaExceededError", () => {
   it("has correct name", () => {
-    expect(new PlanRequiredError().name).toBe("PlanRequiredError")
+    expect(new QuotaExceededError("msg", "simple").name).toBe("QuotaExceededError")
   })
 
-  it("stores requiredPlan", () => {
-    expect(new PlanRequiredError("business").requiredPlan).toBe("business")
+  it("has statusCode 402", () => {
+    expect(new QuotaExceededError("msg", "simple").statusCode).toBe(402)
   })
 
-  it("includes requiredPlan in message", () => {
-    expect(new PlanRequiredError("pro").message).toContain("pro")
+  it("stores quotaType", () => {
+    expect(new QuotaExceededError("msg", "simple").quotaType).toBe("simple")
+    expect(new QuotaExceededError("msg", "detailed").quotaType).toBe("detailed")
   })
 
-  it("defaults to pro plan", () => {
-    expect(new PlanRequiredError().requiredPlan).toBe("pro")
+  it("defaults to simple quota", () => {
+    expect(new QuotaExceededError("msg").quotaType).toBe("simple")
+  })
+})
+
+describe("BatchLimitExceededError", () => {
+  it("has correct name", () => {
+    expect(new BatchLimitExceededError("msg", 10).name).toBe("BatchLimitExceededError")
+  })
+
+  it("has statusCode 400", () => {
+    expect(new BatchLimitExceededError("msg", 10).statusCode).toBe(400)
+  })
+
+  it("stores maxAllowed", () => {
+    expect(new BatchLimitExceededError("msg", 50).maxAllowed).toBe(50)
+  })
+
+  it("stores attempted when provided", () => {
+    expect(new BatchLimitExceededError("msg", 10, 15).attempted).toBe(15)
   })
 })
 
 describe("RateLimitError", () => {
   it("has correct name", () => {
-    expect(new RateLimitError().name).toBe("RateLimitError")
+    expect(new RateLimitError("msg", 42).name).toBe("RateLimitError")
+  })
+
+  it("has statusCode 429", () => {
+    expect(new RateLimitError("msg", 42).statusCode).toBe(429)
   })
 
   it("stores retryAfter", () => {
-    expect(new RateLimitError(42).retryAfter).toBe(42)
+    expect(new RateLimitError("msg", 42).retryAfter).toBe(42)
   })
 
-  it("includes retryAfter seconds in message", () => {
-    expect(new RateLimitError(30).message).toContain("30")
+  it("defaults retryAfter to 1.0", () => {
+    expect(new RateLimitError("msg").retryAfter).toBe(1.0)
+  })
+})
+
+describe("ValidationError", () => {
+  it("has correct name", () => {
+    expect(new ValidationError("msg").name).toBe("ValidationError")
   })
 
-  it("defaults retryAfter to 60", () => {
-    expect(new RateLimitError().retryAfter).toBe(60)
+  it("has statusCode 400", () => {
+    expect(new ValidationError("msg").statusCode).toBe(400)
+  })
+
+  it("stores fieldErrors when provided", () => {
+    const fieldErrors = { email: ["Invalid email"] }
+    const err = new ValidationError("msg", fieldErrors)
+    expect(err.fieldErrors).toEqual(fieldErrors)
   })
 })
 
 describe("APIError", () => {
   it("has correct name", () => {
-    expect(new APIError(500).name).toBe("APIError")
+    expect(new APIError("msg", 500).name).toBe("APIError")
   })
 
   it("stores statusCode", () => {
-    expect(new APIError(503).statusCode).toBe(503)
+    expect(new APIError("msg", 503).statusCode).toBe(503)
   })
 
   it("stores full responseBody", () => {
-    expect(new APIError(500, "Internal Server Error").responseBody)
+    expect(new APIError("msg", 500, "Internal Server Error").responseBody)
       .toBe("Internal Server Error")
   })
 
   it("includes statusCode in message", () => {
-    expect(new APIError(503, "down").message).toContain("503")
-  })
-
-  it("truncates long body in message but keeps full body in responseBody", () => {
-    const longBody = "x".repeat(500)
-    const err = new APIError(500, longBody)
-    expect(err.message.length).toBeLessThan(400)
-    expect(err.responseBody.length).toBe(500)
+    expect(new APIError("msg", 503).message).toContain("503")
   })
 })
 
@@ -168,10 +204,12 @@ describe("catch-all pattern", () => {
   it("catching PyzitError catches all SDK errors", () => {
     const errors = [
       new AuthenticationError(),
-      new ScopeError("x:y"),
-      new PlanRequiredError("pro"),
-      new RateLimitError(10),
-      new APIError(500, "err"),
+      new InsufficientScopeError("msg", "tmd:detailed"),
+      new QuotaExceededError("msg", "simple"),
+      new BatchLimitExceededError("msg", 10),
+      new RateLimitError("msg", 10),
+      new ValidationError("msg"),
+      new APIError("msg", 500, "err"),
       new TimeoutError(),
     ]
     for (const err of errors) {
