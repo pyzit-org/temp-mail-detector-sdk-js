@@ -30,9 +30,11 @@ export { TempMailClient } from "./client.js"
 export {
   PyzitError,
   AuthenticationError,
-  ScopeError,
-  PlanRequiredError,
+  InsufficientScopeError,
+  QuotaExceededError,
+  BatchLimitExceededError,
   RateLimitError,
+  ValidationError,
   APIError,
   TimeoutError,
 } from "./errors.js"
@@ -44,19 +46,14 @@ export {
   CheckResult,
   DetailedResult,
   BulkResult,
-  DnsIntelligence,
-  DetailedDetails,
 } from "./types.js"
 
 export type {
   TempMailClientOptions,
-  MxRecord,
-  Signals,
-  ReputationDetail,
-  StabilityInfo,
+  DetailedDetails,
 } from "./types.js"
 
 /**
  *  Metadata
  */
-export const VERSION = "0.1.0"
+export const VERSION = "1.0.0"
