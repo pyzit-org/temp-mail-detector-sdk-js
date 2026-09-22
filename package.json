@@ -1,6 +1,6 @@
 {
   "name": "@pyzit/tempmail",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "Official JavaScript/TypeScript SDK for the Pyzit disposable email detector API",
   "author": "Pyzit <hi@pyzit.com>",
   "license": "MIT",
