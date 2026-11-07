@@ -3,12 +3,22 @@
 export class CheckResult {
   email: string;
   is_disposable: boolean;
-  status: "clean" | "disposable";
+  is_privacy_relay: boolean;
+  status: "clean" | "disposable" | "privacy_relay";
+  relay_provider: string | null;
+  provider_name: string | null;
+  rule_applied: string | null;
+  rule_details: Record<string, any> | null;
 
   constructor(data: any) {
     this.email = data.email;
-    this.is_disposable = data.is_disposable;
-    this.status = data.status;
+    this.is_disposable = Boolean(data.is_disposable);
+    this.is_privacy_relay = Boolean(data.is_privacy_relay);
+    this.status = data.status ?? (this.is_privacy_relay ? "privacy_relay" : (this.is_disposable ? "disposable" : "clean"));
+    this.relay_provider = data.relay_provider ?? null;
+    this.provider_name = data.provider_name ?? null;
+    this.rule_applied = data.rule_applied ?? null;
+    this.rule_details = data.rule_details ?? null;
   }
 
   /** Shorthand: True when the email is NOT disposable. */
@@ -35,24 +45,34 @@ export class DetailedResult {
   domain: string;
   is_disposable: boolean;
   is_trusted: boolean;
-  classification: "trusted" | "disposable" | "unknown";
+  is_privacy_relay: boolean;
+  relay_provider: string | null;
+  provider_name: string | null;
+  classification: "trusted" | "disposable" | "privacy_relay" | "suspicious" | "clean" | "unknown";
   reputation_score: number;
   risk_level: "low" | "medium" | "high";
   is_valid_format: boolean;
+  cached: boolean;
   rule_applied: string | null;
+  rule_details: Record<string, any> | null;
   details: DetailedDetails;
-  status: "clean" | "disposable";
+  status: "clean" | "disposable" | "privacy_relay";
 
   constructor(data: any) {
     this.email = data.email;
     this.domain = data.domain;
-    this.is_disposable = data.is_disposable;
-    this.is_trusted = data.is_trusted;
-    this.classification = data.classification;
-    this.reputation_score = data.reputation_score;
-    this.risk_level = data.risk_level;
-    this.is_valid_format = data.is_valid_format;
-    this.rule_applied = data.rule_applied;
+    this.is_disposable = Boolean(data.is_disposable);
+    this.is_trusted = Boolean(data.is_trusted);
+    this.is_privacy_relay = Boolean(data.is_privacy_relay);
+    this.relay_provider = data.relay_provider ?? null;
+    this.provider_name = data.provider_name ?? null;
+    this.classification = data.classification ?? "unknown";
+    this.reputation_score = data.reputation_score ?? 0;
+    this.risk_level = data.risk_level ?? "low";
+    this.is_valid_format = data.is_valid_format ?? true;
+    this.cached = Boolean(data.cached);
+    this.rule_applied = data.rule_applied ?? null;
+    this.rule_details = data.rule_details ?? null;
     this.details = data.details || {
       has_mx: false,
       mx_records: [],
@@ -63,7 +83,7 @@ export class DetailedResult {
       has_dmarc: false,
       dmarc_record: null,
     };
-    this.status = data.status;
+    this.status = data.status ?? (this.is_privacy_relay ? "privacy_relay" : (this.is_disposable ? "disposable" : "clean"));
   }
 
   /** Shorthand: True when the email is NOT disposable. */
@@ -85,14 +105,25 @@ export class DetailedResult {
   get has_mx(): boolean {
     return this.details.has_mx;
   }
+
+  /** True when the email should be rejected (disposable or untrusted). */
+  get should_reject(): boolean {
+    return this.is_disposable || !this.is_trusted;
+  }
+
+  /** True when the email needs manual review. */
+  get should_flag(): boolean {
+    return this.classification === "unknown" || this.classification === "suspicious";
+  }
 }
 
 // ── /v1/tmd/bulk/ ───────────────────────────────────────
 
 export class BulkResult {
   total: number;
-  status: "clean" | "disposable" | "mixed";
+  status: "clean" | "disposable" | "privacy_relay" | "mixed";
   disposable_count: number;
+  privacy_relay_count: number;
   flagged_domains: string[];
   results: CheckResult[];
 
@@ -100,6 +131,7 @@ export class BulkResult {
     this.total = data.total || 0;
     this.status = data.status || "clean";
     this.disposable_count = data.disposable_count || 0;
+    this.privacy_relay_count = data.privacy_relay_count || 0;
     this.flagged_domains = data.flagged_domains || [];
     this.results = (data.results || []).map((item: any) => new CheckResult(item));
   }
@@ -115,6 +147,13 @@ export class BulkResult {
   clean_emails(): string[] {
     return this.results
       .filter((r) => r.is_clean)
+      .map((r) => r.email);
+  }
+
+  /** Return only the emails that are privacy relays. */
+  privacy_relay_emails(): string[] {
+    return this.results
+      .filter((r) => r.is_privacy_relay)
       .map((r) => r.email);
   }
 }

@@ -179,6 +179,35 @@ describe("bulk() — happy paths", () => {
     expect(clean).not.toContain("x@mailnator.com")
   })
 
+  it("can extract privacy relay emails from bulk results", async () => {
+    const payload = {
+      total: 3,
+      status: "mixed" as const,
+      disposable_count: 1,
+      privacy_relay_count: 1,
+      flagged_domains: ["mailnator.com"],
+      results: [
+        { email: "hi@pyzit.com", is_disposable: false, is_privacy_relay: false, status: "clean" },
+        { email: "x@mailnator.com", is_disposable: true, is_privacy_relay: false, status: "disposable" },
+        {
+          email: "user@privaterelay.appleid.com",
+          is_disposable: false,
+          is_privacy_relay: true,
+          status: "privacy_relay",
+          relay_provider: "apple",
+          provider_name: "Apple Private Relay",
+        },
+      ],
+    }
+    mockFetch.mockResolvedValueOnce(makeResponse(payload))
+    const r = await client.bulk(["hi@pyzit.com", "x@mailnator.com", "user@privaterelay.appleid.com"])
+    expect(r.total).toBe(3)
+    expect(r.privacy_relay_count).toBe(1)
+    expect(r.privacy_relay_emails()).toEqual(["user@privaterelay.appleid.com"])
+    expect(r.clean_emails()).toEqual(["hi@pyzit.com", "user@privaterelay.appleid.com"])
+    expect(r.disposable_emails()).toEqual(["x@mailnator.com"])
+  })
+
   it("handles empty results gracefully", async () => {
     mockFetch.mockResolvedValueOnce(
       makeResponse({ total: 0, status: "clean", disposable_count: 0, flagged_domains: [], results: [] })

@@ -19,6 +19,7 @@ import {
   CHECK_URL,
   CLEAN_PAYLOAD,
   DISPOSABLE_PAYLOAD,
+  PRIVACY_RELAY_PAYLOAD,
   makeResponse,
   makeTextResponse,
 } from "./fixtures.js"
@@ -46,6 +47,17 @@ describe("check() — happy paths", () => {
     const r = await client.check("user@mailnator.com")
     expect(r.is_disposable).toBe(true)
     expect(r.status).toBe("disposable")
+  })
+
+  it("handles privacy relay response correctly", async () => {
+    mockFetch.mockResolvedValueOnce(makeResponse(PRIVACY_RELAY_PAYLOAD))
+    const r = await client.check("user@privaterelay.appleid.com")
+    expect(r.is_disposable).toBe(false)
+    expect(r.is_privacy_relay).toBe(true)
+    expect(r.is_clean).toBe(true)
+    expect(r.status).toBe("privacy_relay")
+    expect(r.relay_provider).toBe("apple")
+    expect(r.provider_name).toBe("Apple Private Relay")
   })
 
   it("POSTs to the correct URL", async () => {
