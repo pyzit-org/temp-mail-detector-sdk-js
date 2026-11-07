@@ -1,10 +1,12 @@
 # Changelog
 
-## 1.0.0 — stable release
+## [1.0.0] - 2026-11-07
 
 ### Features
 - `TempMailClient` with `check()`, `detailed()`, `bulk()` methods
 - Full TypeScript types for all responses including `DetailedDetails` interface
+- Full Privacy Relay support (`is_privacy_relay`, `relay_provider`, `provider_name`, `privacy_relay_emails()`)
+- Integer `0..100` reputation score and flat DNS intelligence in `DetailedResult`
 - Comprehensive error hierarchy:
   - `PyzitError` (base class)
   - `AuthenticationError` (HTTP 401)

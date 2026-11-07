@@ -155,7 +155,10 @@ result.is_clean       // false (convenience getter, opposite of is_disposable)
 class CheckResult {
   email: string;
   is_disposable: boolean;
-  status: "clean" | "disposable";
+  is_privacy_relay: boolean;
+  status: "clean" | "disposable" | "privacy_relay";
+  relay_provider: string | null;
+  provider_name: string | null;
   readonly is_clean: boolean; // getter
 }
 ```
@@ -164,29 +167,30 @@ class CheckResult {
 
 ### `DetailedResult` ← `await client.detailed(email)`
 
-Full forensic analysis. DNS records, SMTP probing, reputation scoring,
-domain classification. **Pro tier.**
+Full forensic analysis. DNS records (MX, A, SPF, DMARC), reputation scoring,
+domain classification. Uses `detailed_quota`.
 
 ```javascript
-const result = await client.detailed("suspicious@new-domain.io");
+const result = await client.detailed("hi@pyzit.com");
 
-result.risk_level       // "high"
-result.reputation_score // 0.0
-result.classification   // "disposable"
-result.is_trusted       // false
+result.risk_level       // "low"
+result.reputation_score // 100 (integer 0 to 100)
+result.classification   // "trusted"
+result.is_trusted       // true
+result.is_privacy_relay // false
 
 // DNS intelligence
-result.has_mx           // false
-result.mx_hostnames()   // []
-result.a_ips()          // []
+result.has_mx           // true
+result.mx_hostnames()   // ["mail1.pyzit.com", "mail2.pyzit.com"]
+result.a_ips()          // ["172.65.182.103", ...]
 
 // Detailed DNS info
-result.details.has_mx        // false
-result.details.mx_records   // []
-result.details.has_spf       // false
-result.details.spf_record    // null
-result.details.has_dmarc     // false
-result.details.dmarc_record  // null
+result.details.has_mx        // true
+result.details.mx_records   // ["mail1.pyzit.com", "mail2.pyzit.com"]
+result.details.has_spf       // true
+result.details.spf_record    // "v=spf1 include:_spf.pyzit.com ~all"
+result.details.has_dmarc     // true
+result.details.dmarc_record  // "v=DMARC1; p=reject; sp=reject"
 ```
 
 **Response shape:**
@@ -197,19 +201,25 @@ class DetailedResult {
   domain: string;
   is_disposable: boolean;
   is_trusted: boolean;
-  classification: "trusted" | "disposable" | "unknown";
-  reputation_score: number;
+  is_privacy_relay: boolean;
+  relay_provider: string | null;
+  provider_name: string | null;
+  classification: "trusted" | "disposable" | "privacy_relay" | "suspicious" | "clean" | "unknown";
+  reputation_score: number; // 0 to 100
   risk_level: "low" | "medium" | "high";
   is_valid_format: boolean;
+  cached: boolean;
   rule_applied: string | null;
   details: DetailedDetails;
-  status: "clean" | "disposable";
+  status: "clean" | "disposable" | "privacy_relay";
   readonly is_clean: boolean;
   
   // Helper methods
   mx_hostnames(): string[];
   a_ips(): string[];
   get has_mx(): boolean;
+  get should_reject(): boolean;
+  get should_flag(): boolean;
 }
 
 interface DetailedDetails {
@@ -228,22 +238,24 @@ interface DetailedDetails {
 
 ### `BulkResult` ← `await client.bulk(emails)`
 
-Validate up to 100 emails in a single API call. **Business tier.**
+Validate multiple emails in a single API call. Uses `simple_quota`.
 
 ```javascript
 const result = await client.bulk([
   "hi@pyzit.com",
-  "cyz@temp-mail.org",
   "user@mailnator.com",
+  "user@privaterelay.appleid.com",
 ]);
 
-result.total              // 3
-result.status             // "mixed"
-result.disposable_count   // 2
-result.flagged_domains    // ["temp-mail.org", "mailnator.com"]
+result.total                 // 3
+result.status                // "mixed"
+result.disposable_count      // 1
+result.privacy_relay_count   // 1
+result.flagged_domains       // ["mailnator.com"]
 
-result.disposable_emails() // ["cyz@temp-mail.org", "user@mailnator.com"]
-result.clean_emails()      // ["hi@pyzit.com"]
+result.clean_emails()        // ["hi@pyzit.com", "user@privaterelay.appleid.com"]
+result.disposable_emails()   // ["user@mailnator.com"]
+result.privacy_relay_emails() // ["user@privaterelay.appleid.com"]
 ```
 
 **Response shape:**
@@ -251,14 +263,16 @@ result.clean_emails()      // ["hi@pyzit.com"]
 ```typescript
 class BulkResult {
   total: number;
-  status: "clean" | "disposable" | "mixed";
+  status: "clean" | "disposable" | "privacy_relay" | "mixed";
   disposable_count: number;
+  privacy_relay_count: number;
   flagged_domains: string[];
   results: CheckResult[];
   
   // Helper methods
-  disposable_emails(): string[];
   clean_emails(): string[];
+  disposable_emails(): string[];
+  privacy_relay_emails(): string[];
 }
 ```
 
