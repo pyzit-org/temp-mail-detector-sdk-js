@@ -37,3 +37,7 @@ coverage/
 
 changes.md
 DOCUMENTATION.md
+SETUP_GUIDE.md
+local-test-sdk.js
+quick-test.js
+
